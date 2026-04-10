@@ -146,7 +146,7 @@ print.tidyplot <- function(x, ...) {
     tryCatch(
       {
         render_for_viewer(x, ...)
-        ggplot2:::set_last_plot(x)
+        ggplot2::set_last_plot(x)
       },
       error = function(e) {
         warning("Viewer scaling failed, falling back to default rendering: ", conditionMessage(e))
