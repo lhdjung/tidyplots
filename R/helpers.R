@@ -606,7 +606,7 @@ render_for_viewer <- function(plot, ...) {
         width = fig_w,
         height = fig_h,
         units = unit_str,
-        res = 600
+        res = 300
       )
       print(plain, ...)
     },
@@ -691,4 +691,3 @@ render_for_viewer <- function(plot, ...) {
     asNamespace("tidyplots")
   )
 }
-
