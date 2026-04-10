@@ -606,7 +606,7 @@ render_for_viewer <- function(plot, ...) {
         width = fig_w,
         height = fig_h,
         units = unit_str,
-        res = 300
+        res = 600
       )
       print(plain, ...)
     },
