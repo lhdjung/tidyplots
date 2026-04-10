@@ -143,8 +143,16 @@ print.tidyplot <- function(x, ...) {
     # When the pane is resized, the display list replays the raster scaled to
     # fit, so every element -- bars, text, ticks, legend -- zooms together as if
     # resizing a PNG.
-    render_for_viewer(x, ...)
-    ggplot2:::set_last_plot(x)
+    tryCatch(
+      {
+        render_for_viewer(x, ...)
+        ggplot2:::set_last_plot(x)
+      },
+      error = function(e) {
+        warning("Viewer scaling failed, falling back to default rendering: ", conditionMessage(e))
+        NextMethod()
+      }
+    )
   } else {
     NextMethod()
   }
