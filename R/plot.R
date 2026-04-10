@@ -129,32 +129,28 @@ tidyplot <- function(
 print.tidyplot <- function(x, ...) {
   device_interactive <-
     grDevices::dev.interactive() ||
-    grDevices::dev.cur() == 1L
+    (interactive() && grDevices::dev.cur() == 1L)
 
-  viewer_scaling <- getOption("tidyplots.viewer_scaling", TRUE)
+  use_viewer <- device_interactive &&
+    getOption("tidyplots.viewer_scaling", TRUE) &&
+    !is.na(x$tidyplot$width) &&
+    !is.na(x$tidyplot$height)
 
-  if (
-    device_interactive &&
-      viewer_scaling &&
-      !is.na(x$tidyplot$width) &&
-      !is.na(x$tidyplot$height)
-  ) {
+  if (use_viewer) {
     # Render at exact target dimensions and display as a device-filling raster.
     # When the pane is resized, the display list replays the raster scaled to
     # fit, so every element -- bars, text, ticks, legend -- zooms together as if
     # resizing a PNG.
-    viewer_ok <- tryCatch(
+    # Falls back to NextMethod() if render_for_viewer() fails for any reason.
+    rendered <- tryCatch(
       {
         render_for_viewer(x, ...)
         ggplot2::set_last_plot(x)
         TRUE
       },
-      error = function(e) {
-        warning("Viewer scaling failed, falling back to default rendering: ", conditionMessage(e))
-        FALSE
-      }
+      error = function(e) FALSE
     )
-    if (!viewer_ok) NextMethod()
+    if (!rendered) NextMethod()
   } else {
     NextMethod()
   }
@@ -520,13 +516,13 @@ save_plot <- function(
   ...
 ) {
   if (
-    !ggplot2::is.ggplot(plot) && !all(purrr::map_lgl(plot, ggplot2::is.ggplot))
+    !ggplot2::is_ggplot(plot) && !all(purrr::map_lgl(plot, ggplot2::is_ggplot))
   ) {
     cli::cli_abort("{.arg plot} must be a single plot or a list of plots.")
   }
 
   input <- plot
-  if (ggplot2::is.ggplot(plot)) {
+  if (ggplot2::is_ggplot(plot)) {
     plot <- list(plot)
   }
   units <- match.arg(units)

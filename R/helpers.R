@@ -511,56 +511,56 @@ burst_filename <- function(filename, n) {
   )
 }
 
+get_gtab_size <- function(gtab, units) {
+  width <- if (any(as.character(gtab$widths) == "1null")) {
+    NA_real_
+  } else {
+    grid::convertWidth(
+      sum(gtab$widths) + ggplot2::unit(1, "mm"),
+      unitTo = units,
+      valueOnly = TRUE
+    )
+  }
+
+  height <- if (any(as.character(gtab$heights) == "1null")) {
+    NA_real_
+  } else {
+    grid::convertHeight(
+      sum(gtab$heights) + ggplot2::unit(1, "mm"),
+      unitTo = units,
+      valueOnly = TRUE
+    )
+  }
+
+  c(width = width, height = height)
+}
+
 get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
-  if (ggplot2::is.ggplot(plot)) {
+  if (ggplot2::is_ggplot(plot)) {
     plot <- list(plot)
   }
   units <- match.arg(units)
 
-  pages <-
-    purrr::map(plot, function(x) {
-      if (!ggplot2::is.ggplot(x)) {
+  sizes <- plot |>
+    purrr::map(function(x) {
+      if (!ggplot2::is_ggplot(x)) {
         cli::cli_abort(
           "Argument {.arg plot} must be a {.pkg ggplot} or list of {.pkg ggplots}"
         )
       }
+      get_gtab_size(ggplot2::ggplotGrob(x), units)
+    })
 
-      gtab <- ggplot2::ggplotGrob(x)
-
-      width <- NA
-      height <- NA
-      if (all(as.character(gtab$widths) != "1null")) {
-        width <- grid::convertWidth(
-          sum(gtab$widths) + ggplot2::unit(1, "mm"),
-          unitTo = units,
-          valueOnly = TRUE
-        )
-      }
-      if (all(as.character(gtab$heights) != "1null")) {
-        height <- grid::convertHeight(
-          sum(gtab$heights) + ggplot2::unit(1, "mm"),
-          unitTo = units,
-          valueOnly = TRUE
-        )
-      }
-
-      tibble::tibble(width = width, height = height)
-    }) |>
-    dplyr::bind_rows()
-
-  overall_width <- NA
-  overall_height <- NA
-  if (!anyNA(pages$width)) {
-    overall_width <- max(pages$width, na.rm = TRUE)
-  }
-  if (!anyNA(pages$height)) {
-    overall_height <- max(pages$height, na.rm = TRUE)
-  }
+  # Extract values implicitly by passing the strings as shorthands
+  pages <- tibble::tibble(
+    width = purrr::map_dbl(sizes, "width"),
+    height = purrr::map_dbl(sizes, "height")
+  )
 
   list(
     units = units,
     pages = pages,
-    max = c(width = overall_width, height = overall_height)
+    max = c(width = max(pages$width), height = max(pages$height))
   )
 }
 
@@ -570,41 +570,35 @@ get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
 render_for_viewer <- function(plot, ...) {
   unit_str <- plot$tidyplot$unit %||% "mm"
 
-  # Strip the tidyplot class so ggplotGrob() uses ggplot2's method.
+  # Strip the tidyplot class and build the grob once — reused for both layout
+  # measurement and rendering to avoid a double ggplotGrob() call.
   plain <- plot
   class(plain) <- class(plain)[class(plain) != "tidyplot"]
-
-  # Build the gtable ONCE — reused for both measuring and drawing.
   gtab <- ggplot2::ggplotGrob(plain)
 
   # Measure the FULL figure: panel + axes + legend + margins.
   # plot$tidyplot$width/height are panel-only dimensions; rendering at that size
   # clips the legend and axis labels.
-  fig_w <- NA
-  fig_h <- NA
-  if (all(as.character(gtab$widths) != "1null")) {
-    fig_w <- grid::convertWidth(
-      sum(gtab$widths) + ggplot2::unit(1, "mm"),
-      unitTo = unit_str, valueOnly = TRUE
-    )
-  }
-  if (all(as.character(gtab$heights) != "1null")) {
-    fig_h <- grid::convertHeight(
-      sum(gtab$heights) + ggplot2::unit(1, "mm"),
-      unitTo = unit_str, valueOnly = TRUE
-    )
+  sizes <- get_gtab_size(gtab, unit_str)
+
+  fig_w <- if (is.na(sizes[["width"]])) {
+    plot$tidyplot$width
+  } else {
+    sizes[["width"]]
   }
 
-  if (is.na(fig_w)) fig_w <- plot$tidyplot$width
-  if (is.na(fig_h)) fig_h <- plot$tidyplot$height
+  fig_h <- if (is.na(sizes[["height"]])) {
+    plot$tidyplot$height
+  } else {
+    sizes[["height"]]
+  }
 
+  # Render at the full figure dimensions to a temp PNG file.
+  # tryCatch/finally guarantees the device is always closed, even on error —
+  # without this guard an uncaught error leaves the device open and all
+  # subsequent plots silently render into it instead of the viewer.
   tmp <- tempfile(fileext = ".png")
   on.exit(unlink(tmp), add = TRUE)
-
-  # Render at the full figure dimensions using the pre-built gtable.
-  # tryCatch/finally guarantees the device is always closed, even on error —
-  # without this guard an uncaught error leaves the PNG device open and all
-  # subsequent plots silently render into a temp file instead of the viewer.
   prev_dev <- grDevices::dev.cur()
 
   tryCatch(
@@ -616,6 +610,7 @@ render_for_viewer <- function(plot, ...) {
         units = unit_str,
         res = 300
       )
+      grid::grid.newpage()
       grid::grid.draw(gtab)
     },
     finally = {
