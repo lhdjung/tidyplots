@@ -570,30 +570,38 @@ get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
 render_for_viewer <- function(plot, ...) {
   unit_str <- plot$tidyplot$unit %||% "mm"
 
-  # Strip the tidyplot class so print() uses ggplot2's method.
+  # Strip the tidyplot class so ggplotGrob() uses ggplot2's method.
   plain <- plot
   class(plain) <- class(plain)[class(plain) != "tidyplot"]
 
+  # Build the gtable ONCE — reused for both measuring and drawing.
+  gtab <- ggplot2::ggplotGrob(plain)
+
   # Measure the FULL figure: panel + axes + legend + margins.
   # plot$tidyplot$width/height are panel-only dimensions; rendering at that size
-  # clips the legend and axis labels.  get_layout_size() sums the gtable
-  # columns/rows exactly as save_plot() does.
-  layout <- get_layout_size(plain, unit_str)$max
-
-  fig_w <- layout[["width"]]
-  fig_h <- layout[["height"]]
-
-  if (is.na(fig_w)) {
-    fig_w <- plot$tidyplot$width
+  # clips the legend and axis labels.
+  fig_w <- NA
+  fig_h <- NA
+  if (all(as.character(gtab$widths) != "1null")) {
+    fig_w <- grid::convertWidth(
+      sum(gtab$widths) + ggplot2::unit(1, "mm"),
+      unitTo = unit_str, valueOnly = TRUE
+    )
   }
-  if (is.na(fig_h)) {
-    fig_h <- plot$tidyplot$height
+  if (all(as.character(gtab$heights) != "1null")) {
+    fig_h <- grid::convertHeight(
+      sum(gtab$heights) + ggplot2::unit(1, "mm"),
+      unitTo = unit_str, valueOnly = TRUE
+    )
   }
+
+  if (is.na(fig_w)) fig_w <- plot$tidyplot$width
+  if (is.na(fig_h)) fig_h <- plot$tidyplot$height
 
   tmp <- tempfile(fileext = ".png")
   on.exit(unlink(tmp), add = TRUE)
 
-  # Render at the full figure dimensions.
+  # Render at the full figure dimensions using the pre-built gtable.
   # tryCatch/finally guarantees the device is always closed, even on error —
   # without this guard an uncaught error leaves the PNG device open and all
   # subsequent plots silently render into a temp file instead of the viewer.
@@ -608,7 +616,7 @@ render_for_viewer <- function(plot, ...) {
         units = unit_str,
         res = 300
       )
-      print(plain, ...)
+      grid::grid.draw(gtab)
     },
     finally = {
       if (grDevices::dev.cur() != prev_dev) {
