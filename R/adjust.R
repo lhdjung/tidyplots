@@ -1,4 +1,6 @@
 ff_adjust_axis <- function(axis) {
+  rlang::arg_match0(axis, c("x", "y"))
+
   function(
     plot,
     title = ggplot2::waiver(),
@@ -12,71 +14,70 @@ ff_adjust_axis <- function(axis) {
     force_continuous = FALSE,
     ...
   ) {
+    rlang::arg_match0(axis, c("x", "y"))
+
     plot <- check_tidyplot(plot)
+    scale_type <- get_scale_type(plot, axis)
+
     # Parse title
     if (!is_waiver(title)) {
       title <- tidyplot_parser(as.character(title))
     }
 
     # Rotate labels
-    if (rotate_labels == TRUE) {
+    if (isTRUE(rotate_labels)) {
       rotate_labels <- 45
+    } else if (rotate_labels < 0 || rotate_labels > 360) {
+      cli::cli_abort("`rotate_labels` must be within `0` and `360`.")
     }
-    if (is.numeric(rotate_labels) && rotate_labels != 0) {
-      if (rotate_labels >= 90) {
-        vjust <- 0.5
-      } else {
-        vjust <- 1
-      }
-      if (axis == "x") {
-        plot <- plot +
-          ggplot2::theme(
+
+    if (!rotate_labels %in% c(0, 360)) {
+      just <- if (rotate_labels >= 90) 0.5 else 1
+      plot <- plot +
+        switch(
+          axis,
+          "x" = ggplot2::theme(
             axis.text.x = ggplot2::element_text(
               angle = rotate_labels,
               hjust = 1,
-              vjust = vjust
+              vjust = just
             )
-          )
-      }
-      if (axis == "y") {
-        plot <- plot +
-          ggplot2::theme(
+          ),
+          "y" = ggplot2::theme(
             axis.text.y = ggplot2::element_text(
               angle = rotate_labels,
-              hjust = vjust,
+              hjust = just,
               vjust = 1
             )
-          )
-      }
+          ),
+          cli::cli_abort("Internal error: invalid `axis` {axis}.")
+        )
     }
 
     # Adjust labels
-    if (axis == "x") {
-      plot$tidyplot$labels_x <- labels %||% plot$tidyplot$labels_x
-    }
-    if (axis == "y") {
-      plot$tidyplot$labels_y <- labels %||% plot$tidyplot$labels_y
-    }
+    labels_axis <- paste0("labels_", axis)
+    plot$tidyplot[[labels_axis]] <- labels %||% plot$tidyplot[[labels_axis]]
+
     labels_x <- plot$tidyplot$labels_x
     labels_y <- plot$tidyplot$labels_y
 
     # Adjust limits
-    if (axis == "x") {
-      plot$tidyplot$limits_x <- limits %||% plot$tidyplot$limits_x
-    }
-    if (axis == "y") {
-      plot$tidyplot$limits_y <- limits %||% plot$tidyplot$limits_y
-    }
-    # Remove padding when limits are present
-    if (!is.null(plot$tidyplot$limits_x)) {
-      plot$tidyplot$padding_x <- c(0, 0)
-    }
-    if (!is.null(plot$tidyplot$limits_y)) {
-      plot$tidyplot$padding_y <- c(0, 0)
-    }
+    limits_axis <- paste0("limits_", axis)
+    plot$tidyplot[[limits_axis]] <- limits %||% plot$tidyplot[[limits_axis]]
+
+    has_limits_x <- !is.null(plot$tidyplot$limits_x)
+    has_limits_y <- !is.null(plot$tidyplot$limits_y)
 
     # Set limits via coord_cartesian
-    if (!is.null(plot$tidyplot$limits_x) || !is.null(plot$tidyplot$limits_y)) {
+    if (has_limits_x || has_limits_y) {
+      # Remove padding when limits are present
+      if (has_limits_x) {
+        plot$tidyplot$padding_x <- c(0, 0)
+      }
+      if (has_limits_y) {
+        plot$tidyplot$padding_y <- c(0, 0)
+      }
+
       suppressMessages(
         plot <- plot +
           ggplot2::coord_cartesian(
@@ -88,148 +89,140 @@ ff_adjust_axis <- function(axis) {
     }
 
     # Adjust padding (aka expansion)
-    if (axis == "x") {
-      if (!is.na(padding[[1]])) {
-        plot$tidyplot$padding_x[[1]] <- padding[[1]]
+    padding_axis <- paste0("padding_", axis)
+    for (i in 1:2) {
+      if (!is.na(padding[[i]])) {
+        plot$tidyplot[[padding_axis]][[i]] <- padding[[i]]
       }
-      if (!is.na(padding[[2]])) plot$tidyplot$padding_x[[2]] <- padding[[2]]
     }
-    if (axis == "y") {
-      if (!is.na(padding[[1]])) {
-        plot$tidyplot$padding_y[[1]] <- padding[[1]]
-      }
-      if (!is.na(padding[[2]])) plot$tidyplot$padding_y[[2]] <- padding[[2]]
-    }
+
     expand_x <- ggplot2::expansion(mult = plot$tidyplot$padding_x)
     expand_y <- ggplot2::expansion(mult = plot$tidyplot$padding_y)
 
     # Datetime
-    if (is_datetime(plot, axis)) {
+    if (scale_type == "datetime") {
       # cli::cli_alert_success("adjust_{axis}_axis: {.pkg datetime}")
       suppressMessages(
-        if (axis == "x") {
-          plot <- plot +
-            ggplot2::scale_x_datetime(
+        plot <- plot +
+          switch(
+            axis,
+            "x" = ggplot2::scale_x_datetime(
               name = title,
               breaks = breaks,
               labels = labels_x,
               expand = expand_x,
               ...
-            )
-        } else {
-          plot <- plot +
-            ggplot2::scale_y_datetime(
+            ),
+            "y" = ggplot2::scale_y_datetime(
               name = title,
               breaks = breaks,
               labels = labels_y,
               expand = expand_y,
               ...
             )
-        }
+          )
       )
+
       return(plot)
     }
 
     # Date
-    if (is_date(plot, axis)) {
+    if (scale_type == "date") {
       # cli::cli_alert_success("adjust_{axis}_axis: {.pkg date}")
       suppressMessages(
-        if (axis == "x") {
-          plot <- plot +
-            ggplot2::scale_x_date(
+        plot <- plot +
+          switch(
+            axis,
+            "x" = ggplot2::scale_x_date(
               name = title,
               breaks = breaks,
               labels = labels_x,
               expand = expand_x,
               ...
-            )
-        } else {
-          plot <- plot +
-            ggplot2::scale_y_date(
+            ),
+            "y" = ggplot2::scale_y_date(
               name = title,
               breaks = breaks,
               labels = labels_y,
               expand = expand_y,
               ...
             )
-        }
+          )
       )
+
       return(plot)
     }
 
     # Time
-    if (is_time(plot, axis)) {
+    if (scale_type == "time") {
       # cli::cli_alert_success("adjust_{axis}_axis: {.pkg time}")
       suppressMessages(
-        if (axis == "x") {
-          plot <- plot +
-            ggplot2::scale_x_time(
+        plot <- plot +
+          switch(
+            axis,
+            "x" = ggplot2::scale_x_time(
               name = title,
               breaks = breaks,
               labels = labels_x,
               expand = expand_x,
               ...
-            )
-        } else {
-          plot <- plot +
-            ggplot2::scale_y_time(
+            ),
+            "y" = ggplot2::scale_y_time(
               name = title,
               breaks = breaks,
               labels = labels_y,
               expand = expand_y,
               ...
             )
-        }
+          )
       )
+
       return(plot)
     }
 
     # Continuous
-    if (is_continuous(plot, axis) || force_continuous) {
-      suppressMessages({
-        if (axis == "x") {
-          if (!is_discrete(plot, "x")) {
-            if (is_waiver(labels_x) && cut_short_scale) {
-              labels_x <- scales::label_number(
-                scale_cut = scales::cut_short_scale()
-              )
-            }
-            plot <- plot +
-              ggplot2::scale_x_continuous(
-                name = title,
-                breaks = breaks,
-                labels = labels_x,
-                limits = NULL,
-                expand = expand_x,
-                transform = transform,
-                ...
-              )
+    if (force_continuous || scale_type == "continuous") {
+      suppressMessages(
+        if (axis == "x" && !is_discrete(plot, "x")) {
+          if (cut_short_scale && is_waiver(labels_x)) {
+            labels_x <- scales::label_number(
+              scale_cut = scales::cut_short_scale()
+            )
           }
-        } else {
-          if (!is_discrete(plot, "y")) {
-            if (is_waiver(labels_y) && cut_short_scale) {
-              labels_y <- scales::label_number(
-                scale_cut = scales::cut_short_scale()
-              )
-            }
-            plot <- plot +
-              ggplot2::scale_y_continuous(
-                name = title,
-                breaks = breaks,
-                labels = labels_y,
-                limits = NULL,
-                expand = expand_y,
-                transform = transform,
-                ...
-              )
+          plot <- plot +
+            ggplot2::scale_x_continuous(
+              name = title,
+              breaks = breaks,
+              labels = labels_x,
+              limits = NULL,
+              expand = expand_x,
+              transform = transform,
+              ...
+            )
+        } else if (axis == "y" && !is_discrete(plot, "y")) {
+          if (is_waiver(labels_y) && cut_short_scale) {
+            labels_y <- scales::label_number(
+              scale_cut = scales::cut_short_scale()
+            )
           }
+          plot <- plot +
+            ggplot2::scale_y_continuous(
+              name = title,
+              breaks = breaks,
+              labels = labels_y,
+              limits = NULL,
+              expand = expand_y,
+              transform = transform,
+              ...
+            )
         }
-      })
+      )
+
       return(plot)
     }
 
     # Discrete
-    if (is_discrete(plot, axis)) {
+    if (scale_type %in% c("ordinal", "discrete")) {
       suppressMessages(
         if (axis == "x") {
           if (is_waiver(labels_x)) {
@@ -257,14 +250,17 @@ ff_adjust_axis <- function(axis) {
             )
         }
       )
+
       return(plot)
     }
 
     # Catch the rest
     # cli::cli_alert_warning("adjust_{axis}_axis: {.pkg x-axis} was not changed.")
-    return(plot)
+    plot
   }
 }
+
+
 #' Adjust axes
 #' @param title Axis title.
 #' @param limits Axis limits. For example, with `limits = c(20, 90)` the axis starts at 20 and ends at 90.
