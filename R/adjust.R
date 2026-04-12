@@ -1,263 +1,287 @@
 ff_adjust_axis <- function(axis) {
   rlang::arg_match0(axis, c("x", "y"))
 
-  function(
-    plot,
-    title = ggplot2::waiver(),
-    breaks = ggplot2::waiver(),
-    labels = NULL,
-    limits = NULL,
-    padding = c(NA, NA),
-    rotate_labels = FALSE,
-    transform = "identity",
-    cut_short_scale = FALSE,
-    force_continuous = FALSE,
-    ...
-  ) {
-    rlang::arg_match0(axis, c("x", "y"))
+  fmls <- formals(adjust_axis_basic)
 
-    plot <- check_tidyplot(plot)
-    scale_type <- get_scale_type(plot, axis)
+  # Build the forwarding call to `adjust_axis_basic()`.
+  # Pass all of its arguments down to it like `plot = plot, title = title`, etc.
+  # Exceptions: `axis = "x"` / `axis = "y"` and `...` without a default
+  param_names <- setdiff(names(fmls), c("axis", "..."))
+  call_args <- c(
+    list(axis = axis),
+    rlang::set_names(lapply(param_names, rlang::sym), param_names),
+    list(quote(...))
+  )
 
-    # Parse title
-    if (!is_waiver(title)) {
-      title <- tidyplot_parser(as.character(title))
+  # Clean up local objects after factory finishes
+  on.exit(rm(fmls, axis, param_names, call_args))
+
+  # Create and return a thin wrapper around `adjust_axis_basic()`
+  rlang::new_function(
+    args = as.pairlist(fmls[names(fmls) != "axis"]),
+    body = rlang::call2(quote(adjust_axis_basic), !!!call_args)
+  )
+}
+
+
+# Underlying implementation of `adjust_x_axis()` and `adjust_y_axis()`
+adjust_axis_basic <- function(
+  axis,
+  plot,
+  title = ggplot2::waiver(),
+  breaks = ggplot2::waiver(),
+  labels = NULL,
+  limits = NULL,
+  padding = c(NA, NA),
+  rotate_labels = FALSE,
+  transform = "identity",
+  cut_short_scale = FALSE,
+  force_continuous = FALSE,
+  ...
+) {
+  rlang::arg_match0(axis, c("x", "y"))
+
+  plot <- check_tidyplot(plot)
+  scale_type <- get_scale_type(plot, axis)
+
+  # Parse title
+  if (!is_waiver(title)) {
+    title <- tidyplot_parser(as.character(title))
+  }
+
+  # Rotate labels
+  if (isTRUE(rotate_labels)) {
+    rotate_labels <- 45
+  } else if (rotate_labels < 0 || rotate_labels > 360) {
+    cli::cli_abort("`rotate_labels` must be within `0` and `360`.")
+  }
+
+  if (!rotate_labels %in% c(0, 360)) {
+    just <- if (rotate_labels >= 90) 0.5 else 1
+    plot <- plot +
+      switch(
+        axis,
+        "x" = ggplot2::theme(
+          axis.text.x = ggplot2::element_text(
+            angle = rotate_labels,
+            hjust = 1,
+            vjust = just
+          )
+        ),
+        "y" = ggplot2::theme(
+          axis.text.y = ggplot2::element_text(
+            angle = rotate_labels,
+            hjust = just,
+            vjust = 1
+          )
+        ),
+        cli::cli_abort("Internal error: invalid `axis` {axis}.")
+      )
+  }
+
+  # Adjust labels
+  labels_axis <- paste0("labels_", axis)
+  plot$tidyplot[[labels_axis]] <- labels %||% plot$tidyplot[[labels_axis]]
+
+  labels_x <- plot$tidyplot$labels_x
+  labels_y <- plot$tidyplot$labels_y
+
+  # Adjust limits
+  limits_axis <- paste0("limits_", axis)
+  plot$tidyplot[[limits_axis]] <- limits %||% plot$tidyplot[[limits_axis]]
+
+  has_limits_x <- !is.null(plot$tidyplot$limits_x)
+  has_limits_y <- !is.null(plot$tidyplot$limits_y)
+
+  # Set limits via coord_cartesian
+  if (has_limits_x || has_limits_y) {
+    # Remove padding when limits are present
+    if (has_limits_x) {
+      plot$tidyplot$padding_x <- c(0, 0)
+    }
+    if (has_limits_y) {
+      plot$tidyplot$padding_y <- c(0, 0)
     }
 
-    # Rotate labels
-    if (isTRUE(rotate_labels)) {
-      rotate_labels <- 45
-    } else if (rotate_labels < 0 || rotate_labels > 360) {
-      cli::cli_abort("`rotate_labels` must be within `0` and `360`.")
-    }
+    suppressMessages(
+      plot <- plot +
+        ggplot2::coord_cartesian(
+          xlim = plot$tidyplot$limits_x,
+          ylim = plot$tidyplot$limits_y,
+          clip = plot$tidyplot$clipping
+        )
+    )
+  }
 
-    if (!rotate_labels %in% c(0, 360)) {
-      just <- if (rotate_labels >= 90) 0.5 else 1
+  # Adjust padding (aka expansion)
+  padding_axis <- paste0("padding_", axis)
+  for (i in 1:2) {
+    if (!is.na(padding[[i]])) {
+      plot$tidyplot[[padding_axis]][[i]] <- padding[[i]]
+    }
+  }
+
+  expand_x <- ggplot2::expansion(mult = plot$tidyplot$padding_x)
+  expand_y <- ggplot2::expansion(mult = plot$tidyplot$padding_y)
+
+  # Datetime
+  if (scale_type == "datetime") {
+    # cli::cli_alert_success("adjust_{axis}_axis: {.pkg datetime}")
+    suppressMessages(
       plot <- plot +
         switch(
           axis,
-          "x" = ggplot2::theme(
-            axis.text.x = ggplot2::element_text(
-              angle = rotate_labels,
-              hjust = 1,
-              vjust = just
-            )
+          "x" = ggplot2::scale_x_datetime(
+            name = title,
+            breaks = breaks,
+            labels = labels_x,
+            expand = expand_x,
+            ...
           ),
-          "y" = ggplot2::theme(
-            axis.text.y = ggplot2::element_text(
-              angle = rotate_labels,
-              hjust = just,
-              vjust = 1
-            )
-          ),
-          cli::cli_abort("Internal error: invalid `axis` {axis}.")
+          "y" = ggplot2::scale_y_datetime(
+            name = title,
+            breaks = breaks,
+            labels = labels_y,
+            expand = expand_y,
+            ...
+          )
         )
-    }
+    )
 
-    # Adjust labels
-    labels_axis <- paste0("labels_", axis)
-    plot$tidyplot[[labels_axis]] <- labels %||% plot$tidyplot[[labels_axis]]
-
-    labels_x <- plot$tidyplot$labels_x
-    labels_y <- plot$tidyplot$labels_y
-
-    # Adjust limits
-    limits_axis <- paste0("limits_", axis)
-    plot$tidyplot[[limits_axis]] <- limits %||% plot$tidyplot[[limits_axis]]
-
-    has_limits_x <- !is.null(plot$tidyplot$limits_x)
-    has_limits_y <- !is.null(plot$tidyplot$limits_y)
-
-    # Set limits via coord_cartesian
-    if (has_limits_x || has_limits_y) {
-      # Remove padding when limits are present
-      if (has_limits_x) {
-        plot$tidyplot$padding_x <- c(0, 0)
-      }
-      if (has_limits_y) {
-        plot$tidyplot$padding_y <- c(0, 0)
-      }
-
-      suppressMessages(
-        plot <- plot +
-          ggplot2::coord_cartesian(
-            xlim = plot$tidyplot$limits_x,
-            ylim = plot$tidyplot$limits_y,
-            clip = plot$tidyplot$clipping
-          )
-      )
-    }
-
-    # Adjust padding (aka expansion)
-    padding_axis <- paste0("padding_", axis)
-    for (i in 1:2) {
-      if (!is.na(padding[[i]])) {
-        plot$tidyplot[[padding_axis]][[i]] <- padding[[i]]
-      }
-    }
-
-    expand_x <- ggplot2::expansion(mult = plot$tidyplot$padding_x)
-    expand_y <- ggplot2::expansion(mult = plot$tidyplot$padding_y)
-
-    # Datetime
-    if (scale_type == "datetime") {
-      # cli::cli_alert_success("adjust_{axis}_axis: {.pkg datetime}")
-      suppressMessages(
-        plot <- plot +
-          switch(
-            axis,
-            "x" = ggplot2::scale_x_datetime(
-              name = title,
-              breaks = breaks,
-              labels = labels_x,
-              expand = expand_x,
-              ...
-            ),
-            "y" = ggplot2::scale_y_datetime(
-              name = title,
-              breaks = breaks,
-              labels = labels_y,
-              expand = expand_y,
-              ...
-            )
-          )
-      )
-
-      return(plot)
-    }
-
-    # Date
-    if (scale_type == "date") {
-      # cli::cli_alert_success("adjust_{axis}_axis: {.pkg date}")
-      suppressMessages(
-        plot <- plot +
-          switch(
-            axis,
-            "x" = ggplot2::scale_x_date(
-              name = title,
-              breaks = breaks,
-              labels = labels_x,
-              expand = expand_x,
-              ...
-            ),
-            "y" = ggplot2::scale_y_date(
-              name = title,
-              breaks = breaks,
-              labels = labels_y,
-              expand = expand_y,
-              ...
-            )
-          )
-      )
-
-      return(plot)
-    }
-
-    # Time
-    if (scale_type == "time") {
-      # cli::cli_alert_success("adjust_{axis}_axis: {.pkg time}")
-      suppressMessages(
-        plot <- plot +
-          switch(
-            axis,
-            "x" = ggplot2::scale_x_time(
-              name = title,
-              breaks = breaks,
-              labels = labels_x,
-              expand = expand_x,
-              ...
-            ),
-            "y" = ggplot2::scale_y_time(
-              name = title,
-              breaks = breaks,
-              labels = labels_y,
-              expand = expand_y,
-              ...
-            )
-          )
-      )
-
-      return(plot)
-    }
-
-    # Continuous
-    if (force_continuous || scale_type == "continuous") {
-      suppressMessages(
-        if (axis == "x" && !is_discrete(plot, "x")) {
-          if (cut_short_scale && is_waiver(labels_x)) {
-            labels_x <- scales::label_number(
-              scale_cut = scales::cut_short_scale()
-            )
-          }
-          plot <- plot +
-            ggplot2::scale_x_continuous(
-              name = title,
-              breaks = breaks,
-              labels = labels_x,
-              limits = NULL,
-              expand = expand_x,
-              transform = transform,
-              ...
-            )
-        } else if (axis == "y" && !is_discrete(plot, "y")) {
-          if (is_waiver(labels_y) && cut_short_scale) {
-            labels_y <- scales::label_number(
-              scale_cut = scales::cut_short_scale()
-            )
-          }
-          plot <- plot +
-            ggplot2::scale_y_continuous(
-              name = title,
-              breaks = breaks,
-              labels = labels_y,
-              limits = NULL,
-              expand = expand_y,
-              transform = transform,
-              ...
-            )
-        }
-      )
-
-      return(plot)
-    }
-
-    # Discrete
-    if (scale_type %in% c("ordinal", "discrete")) {
-      suppressMessages(
-        if (axis == "x") {
-          if (is_waiver(labels_x)) {
-            labels_x <- tidyplot_parse_labels()
-          }
-          plot <- plot +
-            ggplot2::scale_x_discrete(
-              name = title,
-              breaks = breaks,
-              labels = labels_x,
-              expand = ggplot2::waiver(),
-              ...
-            )
-        } else {
-          if (is_waiver(labels_y)) {
-            labels_y <- tidyplot_parse_labels()
-          }
-          plot <- plot +
-            ggplot2::scale_y_discrete(
-              name = title,
-              breaks = breaks,
-              labels = labels_y,
-              expand = ggplot2::waiver(),
-              ...
-            )
-        }
-      )
-
-      return(plot)
-    }
-
-    # Catch the rest
-    # cli::cli_alert_warning("adjust_{axis}_axis: {.pkg x-axis} was not changed.")
-    plot
+    return(plot)
   }
+
+  # Date
+  if (scale_type == "date") {
+    # cli::cli_alert_success("adjust_{axis}_axis: {.pkg date}")
+    suppressMessages(
+      plot <- plot +
+        switch(
+          axis,
+          "x" = ggplot2::scale_x_date(
+            name = title,
+            breaks = breaks,
+            labels = labels_x,
+            expand = expand_x,
+            ...
+          ),
+          "y" = ggplot2::scale_y_date(
+            name = title,
+            breaks = breaks,
+            labels = labels_y,
+            expand = expand_y,
+            ...
+          )
+        )
+    )
+
+    return(plot)
+  }
+
+  # Time
+  if (scale_type == "time") {
+    # cli::cli_alert_success("adjust_{axis}_axis: {.pkg time}")
+    suppressMessages(
+      plot <- plot +
+        switch(
+          axis,
+          "x" = ggplot2::scale_x_time(
+            name = title,
+            breaks = breaks,
+            labels = labels_x,
+            expand = expand_x,
+            ...
+          ),
+          "y" = ggplot2::scale_y_time(
+            name = title,
+            breaks = breaks,
+            labels = labels_y,
+            expand = expand_y,
+            ...
+          )
+        )
+    )
+
+    return(plot)
+  }
+
+  # Continuous
+  if (force_continuous || scale_type == "continuous") {
+    suppressMessages(
+      if (axis == "x" && !is_discrete(plot, "x")) {
+        if (cut_short_scale && is_waiver(labels_x)) {
+          labels_x <- scales::label_number(
+            scale_cut = scales::cut_short_scale()
+          )
+        }
+        plot <- plot +
+          ggplot2::scale_x_continuous(
+            name = title,
+            breaks = breaks,
+            labels = labels_x,
+            limits = NULL,
+            expand = expand_x,
+            transform = transform,
+            ...
+          )
+      } else if (axis == "y" && !is_discrete(plot, "y")) {
+        if (is_waiver(labels_y) && cut_short_scale) {
+          labels_y <- scales::label_number(
+            scale_cut = scales::cut_short_scale()
+          )
+        }
+        plot <- plot +
+          ggplot2::scale_y_continuous(
+            name = title,
+            breaks = breaks,
+            labels = labels_y,
+            limits = NULL,
+            expand = expand_y,
+            transform = transform,
+            ...
+          )
+      }
+    )
+
+    return(plot)
+  }
+
+  # Discrete
+  if (scale_type %in% c("ordinal", "discrete")) {
+    suppressMessages(
+      if (axis == "x") {
+        if (is_waiver(labels_x)) {
+          labels_x <- tidyplot_parse_labels()
+        }
+        plot <- plot +
+          ggplot2::scale_x_discrete(
+            name = title,
+            breaks = breaks,
+            labels = labels_x,
+            expand = ggplot2::waiver(),
+            ...
+          )
+      } else {
+        if (is_waiver(labels_y)) {
+          labels_y <- tidyplot_parse_labels()
+        }
+        plot <- plot +
+          ggplot2::scale_y_discrete(
+            name = title,
+            breaks = breaks,
+            labels = labels_y,
+            expand = ggplot2::waiver(),
+            ...
+          )
+      }
+    )
+
+    return(plot)
+  }
+
+  # Catch the rest
+  # cli::cli_alert_warning("adjust_{axis}_axis: {.pkg x-axis} was not changed.")
+  plot
 }
 
 

@@ -1,3 +1,9 @@
+# Clean up objects that are only needed at build-time
+if (!interactive()) {
+  rm(ff_adjust_axis)
+}
+
+
 .onAttach <- function(libname, pkgname) {
   if (!getOption("tidyplots.startup_message_shown", FALSE)) {
     doi <- "https://doi.org/10.1002/imt2.70018"
