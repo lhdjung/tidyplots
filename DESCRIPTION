@@ -19,7 +19,6 @@ Imports:
     ggpubr,
     ggrastr,
     ggrepel,
-    glue,
     gtable,
     Hmisc,
     htmltools,
@@ -28,18 +27,17 @@ Imports:
     rlang,
     scales,
     stringr,
-    tibble,
-    tidyr,
-    tidyselect
+    tidyr
 Depends: 
     R (>= 4.1.0)
 LazyData: true
 URL: https://github.com/jbengler/tidyplots, https://jbengler.github.io/tidyplots/
 BugReports: https://github.com/jbengler/tidyplots/issues
-Suggests: 
+Suggests:
     knitr,
     rmarkdown,
     testthat (>= 3.0.0),
-    vdiffr
+    vdiffr,
+    withr
 VignetteBuilder: knitr
 Config/testthat/edition: 3

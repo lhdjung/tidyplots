@@ -196,7 +196,7 @@ format_p_value <- function(x, accuracy = 0.0001) {
   ifelse(
     x >= accuracy,
     format_number(x, accuracy),
-    glue::glue("< { format_number(accuracy, accuracy) }")
+    paste0("< ", format_number(accuracy, accuracy))
   )
 }
 
@@ -364,13 +364,10 @@ extract_mapping <- function(plot) {
   aesthetic <- c("x", "y", "colour", "fill", "group")
   variable <- my_variable(aesthetic)
 
-  tibble::new_tibble(
-    list(
-      aesthetic = aesthetic,
-      variable = variable,
-      scale_type = my_scale_type(variable)
-    ),
-    nrow = length(aesthetic)
+  data.frame(
+    aesthetic = aesthetic,
+    variable = variable,
+    scale_type = my_scale_type(variable)
   )
 }
 
@@ -602,7 +599,7 @@ get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
     })
 
   # Extract values implicitly by passing the strings as shorthands
-  pages <- tibble::tibble(
+  pages <- data.frame(
     width = purrr::map_dbl(sizes, "width"),
     height = purrr::map_dbl(sizes, "height")
   )
