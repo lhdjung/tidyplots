@@ -532,6 +532,56 @@ get_gtab_size <- function(gtab, units) {
     )
   }
 
+  # Adjust for legend overflow in the orthogonal direction.
+  # The legend shares the panel's row (left/right) or column (top/bottom) in
+  # the gtable, so sum(heights)/sum(widths) only reflects the panel size, not
+  # the legend size.  When the legend is taller/wider than the panel, we add
+  # the overflow to the figure dimensions.
+  tryCatch({
+    side_names <- c("guide-box-right", "guide-box-left")
+    tb_names   <- c("guide-box-top", "guide-box-bottom")
+
+    get_legend_content_size <- function(idx) {
+      grob <- gtab$grobs[[idx]]
+      if (inherits(grob, "zeroGrob")) return(NULL)
+      if (!inherits(grob, "gtable")) return(NULL)
+      guides_idx <- match("guides", grob$layout$name)
+      if (is.na(guides_idx)) return(NULL)
+      inner <- grob$grobs[[guides_idx]]
+      if (!inherits(inner, "gtable")) return(NULL)
+      list(
+        width  = grid::convertWidth(sum(inner$widths), unitTo = units, valueOnly = TRUE),
+        height = grid::convertHeight(sum(inner$heights), unitTo = units, valueOnly = TRUE)
+      )
+    }
+
+    for (nm in side_names) {
+      idx <- match(nm, gtab$layout$name)
+      if (!is.na(idx) && !is.na(height)) {
+        legend_size <- get_legend_content_size(idx)
+        if (!is.null(legend_size)) {
+          row <- gtab$layout$t[idx]
+          panel_row_h <- grid::convertHeight(gtab$heights[row], unitTo = units, valueOnly = TRUE)
+          overflow <- legend_size$height - panel_row_h
+          if (overflow > 0) height <- height + overflow
+        }
+      }
+    }
+
+    for (nm in tb_names) {
+      idx <- match(nm, gtab$layout$name)
+      if (!is.na(idx) && !is.na(width)) {
+        legend_size <- get_legend_content_size(idx)
+        if (!is.null(legend_size)) {
+          col <- gtab$layout$l[idx]
+          panel_col_w <- grid::convertWidth(gtab$widths[col], unitTo = units, valueOnly = TRUE)
+          overflow <- legend_size$width - panel_col_w
+          if (overflow > 0) width <- width + overflow
+        }
+      }
+    }
+  }, error = function(e) NULL)
+
   c(width = width, height = height)
 }
 
