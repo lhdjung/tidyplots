@@ -557,9 +557,11 @@ get_gtab_size <- function(gtab, units) {
       if (!is.na(idx) && !is.na(height)) {
         legend_size <- get_legend_content_size(idx)
         if (!is.null(legend_size)) {
-          row <- gtab$layout$t[idx]
-          panel_row_h <- grid::convertHeight(gtab$heights[row], unitTo = units, valueOnly = TRUE)
-          overflow <- legend_size$height - panel_row_h
+          span_rows <- gtab$layout$t[idx]:gtab$layout$b[idx]
+          span_h <- sum(vapply(span_rows, function(r) {
+            grid::convertHeight(gtab$heights[r], unitTo = units, valueOnly = TRUE)
+          }, numeric(1)))
+          overflow <- legend_size$height - span_h
           if (overflow > 0) height <- height + overflow
         }
       }
@@ -570,9 +572,11 @@ get_gtab_size <- function(gtab, units) {
       if (!is.na(idx) && !is.na(width)) {
         legend_size <- get_legend_content_size(idx)
         if (!is.null(legend_size)) {
-          col <- gtab$layout$l[idx]
-          panel_col_w <- grid::convertWidth(gtab$widths[col], unitTo = units, valueOnly = TRUE)
-          overflow <- legend_size$width - panel_col_w
+          span_cols <- gtab$layout$l[idx]:gtab$layout$r[idx]
+          span_w <- sum(vapply(span_cols, function(c) {
+            grid::convertWidth(gtab$widths[c], unitTo = units, valueOnly = TRUE)
+          }, numeric(1)))
+          overflow <- legend_size$width - span_w
           if (overflow > 0) width <- width + overflow
         }
       }
