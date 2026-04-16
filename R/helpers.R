@@ -619,6 +619,10 @@ get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
 # Helpers for proportional scaling during interactive display ----------------
 
 render_for_viewer <- function(plot, ...) {
+  # Capture the original device first, before any operations that might
+  # interact with the device stack (including ggplotGrob/get_gtab_size).
+  prev_dev <- grDevices::dev.cur()
+
   unit_str <- plot$tidyplot$unit %||% "mm"
 
   # Strip the tidyplot class and build the grob once — reused for both layout
@@ -645,28 +649,28 @@ render_for_viewer <- function(plot, ...) {
   }
 
   # Render at the full figure dimensions to a temp PNG file.
-  # tryCatch/finally guarantees the device is always closed, even on error —
-  # without this guard an uncaught error leaves the device open and all
-  # subsequent plots silently render into it instead of the viewer.
+  # We track the PNG device number explicitly (png_dev) so it can be closed
+  # by identity rather than by dev.cur() comparison. grid.draw.gTree calls
+  # grDevices::recordGraphics() internally which can change dev.cur() back to
+  # prev_dev while the PNG device is still open, causing the conditional
+  # dev.cur() != prev_dev check to silently skip dev.off() and leak the device.
   tmp <- tempfile(fileext = ".png")
   on.exit(unlink(tmp), add = TRUE)
-  prev_dev <- grDevices::dev.cur()
+  png_dev <- NA_integer_
 
   tryCatch(
     {
-      grDevices::png(
-        tmp,
-        width = fig_w,
-        height = fig_h,
-        units = unit_str,
-        res = 300
-      )
+      grDevices::png(tmp, width = fig_w, height = fig_h, units = unit_str, res = 300)
+      png_dev <- grDevices::dev.cur()
       grid::grid.newpage()
       grid::grid.draw(gtab)
     },
     finally = {
-      if (grDevices::dev.cur() != prev_dev) {
-        grDevices::dev.off()
+      if (!is.na(png_dev) && png_dev %in% grDevices::dev.list()) {
+        grDevices::dev.off(png_dev)
+      }
+      if (grDevices::dev.cur() != prev_dev && prev_dev > 1L) {
+        tryCatch(grDevices::dev.set(prev_dev), error = function(e) NULL)
       }
     }
   )
@@ -724,10 +728,6 @@ render_for_viewer <- function(plot, ...) {
         frac_w <- 1.0
         frac_h <- ar_target / ar_device
       }
-      # recording = FALSE prevents this draw from being added to the display
-      # list as a static entry alongside [recordGraphics(expr)].  Without it,
-      # replay would run recordGraphics (correct fracs), then ALSO run the
-      # static grid.draw (baked-in fracs), overwriting the correct result.
       grid::grid.draw(
         grid::rasterGrob(
           img,
@@ -740,7 +740,6 @@ render_for_viewer <- function(plot, ...) {
         recording = FALSE
       )
     },
-
     list(img = img, fig_w_in = fig_w_in, fig_h_in = fig_h_in),
     asNamespace("tidyplots")
   )

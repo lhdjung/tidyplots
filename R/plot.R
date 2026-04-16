@@ -131,7 +131,16 @@ print.tidyplot <- function(x, ...) {
     grDevices::dev.interactive() ||
     (interactive() && grDevices::dev.cur() == 1L)
 
+  # On macOS, ggsave uses quartz(type = "pdf/png/...") which reports as
+  # interactive via dev.interactive(). Calling render_for_viewer() inside
+  # ggsave would write an extra page to the output file. Guard against this
+  # by checking whether we are on the call stack of ggsave.
+  in_ggsave <- any(vapply(sys.calls(), function(c) {
+    deparse(c[[1]])[1L] %in% c("ggsave", "ggplot2::ggsave")
+  }, logical(1L)))
+
   use_viewer <- device_interactive &&
+    !in_ggsave &&
     getOption("tidyplots.viewer_scaling", TRUE) &&
     !is.na(x$tidyplot$width) &&
     !is.na(x$tidyplot$height)
