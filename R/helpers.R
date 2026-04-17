@@ -565,6 +565,97 @@ get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
 }
 
 
+# Create a wrapper around an existing implementation function. By default, the
+# wrapper will forward all arguments to the implementation and have the same
+# defaults. This can be adjusted via `args_defaults`. You can also hardcode
+# argument specifications in the forwarding call via `args_hardcode`. If you do,
+# they won't be arguments of the wrapper. Dots `...` are forwarded by default,
+# but you can use `pass_dots = FALSE` so the wrapper won't support the dots.
+new_wrapper <- function(
+  impl_fn,
+  args_defaults = list(),
+  args_hardcode = list(),
+  pass_dots = TRUE
+) {
+  name_fn <- deparse(substitute(impl_fn))
+  fmls <- formals(impl_fn)
+  names_fmls <- names(fmls)
+
+  names_defaults <- names(args_defaults)
+  names_hardcode <- names(args_hardcode)
+
+  if (length(args_hardcode) > 0) {
+    if (!all(names_hardcode %in% names_fmls)) {
+      offenders <- names_hardcode[!names_hardcode %in% names_fmls]
+      rlang::abort(c(
+        "All `args_hardcode` items must refer to existing arguments.",
+        x = paste("Non-existing arguments:", offenders)
+      ))
+    } else if (any(names_hardcode == "...")) {
+      rlang::abort("Can't use \"...\" as an argument name in `args_hardcode`.")
+    }
+  }
+
+  if (length(args_defaults) > 0) {
+    if (!all(names_defaults %in% names_fmls)) {
+      offenders <- names_defaults[!names_defaults %in% names_fmls]
+      rlang::abort(c(
+        "All `args_defaults` items must refer to existing arguments.",
+        x = paste("Non-existing arguments:", offenders)
+      ))
+    }
+
+    names_double_spec <- names_hardcode[names_hardcode %in% names_defaults]
+    if (length(names_double_spec) > 0) {
+      rlang::abort(c(
+        "Can't provide defaults for hardcoded arguments.",
+        x = paste(
+          "These are in both `args_defaults` and `args_hardcode`:",
+          names_double_spec
+        )
+      ))
+    }
+
+    # Insert user-specified new defaults into the list of formal arguments
+    for (i in seq_along(args_defaults)) {
+      fmls[names_fmls == names_defaults[i]] <- args_defaults[[i]]
+    }
+  } else {
+    names_double_spec <- ""
+  }
+
+  param_names <- setdiff(names_fmls, c("...")) # what else?
+
+  call_args <- lapply(param_names, function(name) {
+    if (name %in% names_hardcode) {
+      args_hardcode[[name]]
+    } else {
+      rlang::sym(name)
+    }
+  })
+
+  call_args <- rlang::set_names(call_args, param_names)
+
+  # Use dots by default
+  if (pass_dots && "..." %in% names_fmls) {
+    call_args <- c(call_args, list(quote(...)))
+  }
+
+  # Clean up local objects after factory finishes
+  # fmt: skip
+  on.exit(rm(
+    impl_fn, args_defaults, args_hardcode, pass_dots, name_fn, fmls, names_fmls,
+    names_hardcode, names_defaults, names_double_spec, param_names, call_args
+  ))
+
+  # Create and return a thin wrapper around `adjust_axis_basic()`
+  rlang::new_function(
+    args = as.pairlist(fmls[!names_fmls %in% names_hardcode]),
+    body = rlang::call2(name_fn, !!!call_args)
+  )
+}
+
+
 # Helpers for proportional scaling during interactive display ----------------
 
 render_for_viewer <- function(plot, ...) {

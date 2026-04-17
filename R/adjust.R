@@ -1,28 +1,5 @@
-ff_adjust_axis <- function(axis) {
-  rlang::arg_match0(axis, c("x", "y"))
-
-  fmls <- formals(adjust_axis_basic)
-
-  # Build the forwarding call to `adjust_axis_basic()`.
-  # Pass all of its arguments down to it like `plot = plot, title = title`, etc.
-  # Exceptions: `axis = "x"` / `axis = "y"` and `...` without a default
-  param_names <- setdiff(names(fmls), c("axis", "..."))
-  call_args <- c(
-    list(axis = axis),
-    rlang::set_names(lapply(param_names, rlang::sym), param_names),
-    list(quote(...))
-  )
-
-  # Clean up local objects after factory finishes
-  on.exit(rm(fmls, axis, param_names, call_args))
-
-  # Create and return a thin wrapper around `adjust_axis_basic()`
-  rlang::new_function(
-    args = as.pairlist(fmls[names(fmls) != "axis"]),
-    body = rlang::call2(quote(adjust_axis_basic), !!!call_args)
-  )
-}
-
+#' @include helpers.R
+NULL
 
 # Underlying implementation of `adjust_x_axis()` and `adjust_y_axis()`
 adjust_axis_basic <- function(
@@ -348,10 +325,17 @@ adjust_axis_basic <- function(
 #'   adjust_y_axis(transform = "log2")
 #'
 #' @export
-adjust_x_axis <- ff_adjust_axis("x")
+adjust_x_axis <- new_wrapper(
+  adjust_axis_basic,
+  args_hardcode = list(axis = "x")
+)
+
 #' @rdname adjust_x_axis
 #' @export
-adjust_y_axis <- ff_adjust_axis("y")
+adjust_y_axis <- new_wrapper(
+  adjust_axis_basic,
+  args_hardcode = list(axis = "y")
+)
 
 
 #' Adjust plot area size

@@ -1,6 +1,6 @@
 # Clean up objects that are only needed at build-time
 if (!interactive()) {
-  rm(ff_adjust_axis)
+  rm(new_wrapper)
 }
 
 
