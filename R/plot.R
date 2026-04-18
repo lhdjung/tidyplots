@@ -131,16 +131,25 @@ print.tidyplot <- function(x, ...) {
     grDevices::dev.interactive() ||
     (interactive() && grDevices::dev.cur() == 1L)
 
-  # On macOS, ggsave uses quartz(type = "pdf/png/...") which reports as
-  # interactive via dev.interactive(). Calling render_for_viewer() inside
-  # ggsave would write an extra page to the output file. Guard against this
-  # by checking whether we are on the call stack of ggsave.
-  in_ggsave <- any(vapply(sys.calls(), function(c) {
-    deparse(c[[1]])[1L] %in% c("ggsave", "ggplot2::ggsave")
-  }, logical(1L)))
+  # On macOS, file-writing devices (quartz pdf/png/...) report `interactive =
+  # TRUE` via `dev.interactive()`. Calling `render_for_viewer()` inside any such
+  # save function would write an extra page to the output file. Guard against
+  # this by checking whether a known save function is on the call stack.
+  in_file_save <- sys.calls() |>
+    vapply(
+      function(call) {
+        tryCatch(
+          deparse(call[[1L]])[1L] %in%
+            c("ggsave", "ggplot2::ggsave", "save_plot", "cowplot::save_plot"),
+          error = function(e) FALSE
+        )
+      },
+      logical(1L)
+    ) |>
+    any()
 
   use_viewer <- device_interactive &&
-    !in_ggsave &&
+    !in_file_save &&
     getOption("tidyplots.viewer_scaling", TRUE) &&
     !is.na(x$tidyplot$width) &&
     !is.na(x$tidyplot$height)
@@ -149,15 +158,23 @@ print.tidyplot <- function(x, ...) {
     # Render at exact target dimensions and display as a device-filling raster.
     # When the pane is resized, the display list replays the raster scaled to
     # fit, so every element -- bars, text, ticks, legend -- zooms together as if
-    # resizing a PNG.
-    # Falls back to NextMethod() if render_for_viewer() fails for any reason.
+    # resizing a PNG. Falls back to `NextMethod()` if `render_for_viewer()`
+    # fails for any reason.
     rendered <- tryCatch(
       {
         render_for_viewer(x, ...)
         ggplot2::set_last_plot(x)
         TRUE
       },
-      error = function(e) FALSE
+      error = function(e) {
+        if (isTRUE(getOption("tidyplots.verbose", FALSE))) {
+          message(
+            "tidyplots: `render_for_viewer()` failed, falling back to default print: ",
+            conditionMessage(e)
+          )
+        }
+        FALSE
+      }
     )
     if (!rendered) NextMethod()
   } else {
@@ -177,6 +194,8 @@ print.tidyplot <- function(x, ...) {
 #'   rasters (`TRUE`, the default) in interactive viewers such as RStudio and
 #'   Positron. Set to `FALSE` to preview the real-world print size that will be
 #'   used when saving the plot to disk; see [save_plot()].
+#' @param verbose Whether to emit a message when the viewer rendering falls back
+#'   to the default ggplot2 print method (default is `FALSE`).
 #' @return The old options invisibly
 #'
 #' @examples
@@ -217,7 +236,8 @@ tidyplots_options <- function(
   my_style = NULL,
   paper = NULL,
   ink = NULL,
-  viewer_scaling = NULL
+  viewer_scaling = NULL,
+  verbose = NULL
 ) {
   opts <- options(
     tidyplots.width = width,
@@ -227,7 +247,8 @@ tidyplots_options <- function(
     tidyplots.my_style = my_style,
     tidyplots.paper = paper,
     tidyplots.ink = ink,
-    tidyplots.viewer_scaling = viewer_scaling
+    tidyplots.viewer_scaling = viewer_scaling,
+    tidyplots.verbose = verbose
   )
   invisible(opts)
 }

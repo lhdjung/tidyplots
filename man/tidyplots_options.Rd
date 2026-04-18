@@ -12,7 +12,8 @@ tidyplots_options(
   my_style = NULL,
   paper = NULL,
   ink = NULL,
-  viewer_scaling = NULL
+  viewer_scaling = NULL,
+  verbose = NULL
 )
 }
 \arguments{
@@ -40,6 +41,9 @@ at least one discrete axis and to \code{0} for plots with two continuous axes.}
 rasters (\code{TRUE}, the default) in interactive viewers such as RStudio and
 Positron. Set to \code{FALSE} to preview the real-world print size that will be
 used when saving the plot to disk; see \code{\link[=save_plot]{save_plot()}}.}
+
+\item{verbose}{Whether to emit a message when the viewer rendering falls back
+to the default ggplot2 print method (default is \code{FALSE}).}
 }
 \value{
 The old options invisibly
