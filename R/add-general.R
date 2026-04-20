@@ -1,3 +1,7 @@
+#' @include helpers.R
+NULL
+
+
 #' Common arguments
 #'
 #' @param plot A `tidyplot` generated with the function `tidyplot()`.
@@ -225,54 +229,66 @@ add_sd_ribbon <- ff_ribbon(.fun.data = mean_sd)
 add_ci95_ribbon <- ff_ribbon(.fun.data = mean_cl_boot)
 
 
-## Bar function factory
-ff_bar <- function(.fun, .count = FALSE) {
-  function(
-    plot,
-    dodge_width = NULL,
-    width = 0.6,
-    saturation = 1,
-    preserve = "total",
-    ...
-  ) {
-    plot <- check_tidyplot(plot)
-    dodge_width <- dodge_width %||% plot$tidyplot$dodge_width
-    position <- ggplot2::position_dodge(
-      width = dodge_width,
-      preserve = preserve
-    )
-    if (saturation != 1) {
-      plot <- plot |> adjust_colors(saturation = saturation)
-    }
-    if (.count) {
-      plot <- plot +
-        ggplot2::stat_count(
-          geom = "bar",
-          color = NA,
-          width = width,
-          position = position,
-          ...
-        )
-    } else {
-      plot <- plot +
-        ggplot2::stat_summary(
-          fun = .fun,
-          geom = "bar",
-          color = NA,
-          width = width,
-          position = position,
-          ...
-        )
-    }
-    # remove padding between bar and axis
-    if (is_flipped(plot)) {
-      plot <- plot |> adjust_x_axis(padding = c(0, NA), force_continuous = TRUE)
-    } else {
-      plot <- plot |> adjust_y_axis(padding = c(0, NA), force_continuous = TRUE)
-    }
-    plot
+add_bar_basic <- function(
+  .fun,
+  .count,
+  plot,
+  dodge_width = NULL,
+  width = 0.6,
+  saturation = 1,
+  preserve = "total",
+  ...
+) {
+  plot <- check_tidyplot(plot)
+  # `check_tidyplot()` records the direct caller ("add_bar_basic"), but
+  # `call_history` consumers like `sort_x_axis_levels()` match on public API
+  # names like "add_count_bar". Overwrite the last entry with the actual public
+  # caller.
+  outer_call <- sys.call(sys.parent())
+  plot$tidyplot$call_history[length(plot$tidyplot$call_history)] <-
+    as.character(outer_call[[1]])
+
+  dodge_width <- dodge_width %||% plot$tidyplot$dodge_width
+  position <- ggplot2::position_dodge(
+    width = dodge_width,
+    preserve = preserve
+  )
+
+  if (saturation != 1) {
+    plot <- plot |> adjust_colors(saturation = saturation)
   }
+
+  if (.count) {
+    plot <- plot +
+      ggplot2::stat_count(
+        geom = "bar",
+        color = NA,
+        width = width,
+        position = position,
+        ...
+      )
+  } else {
+    plot <- plot +
+      ggplot2::stat_summary(
+        fun = .fun,
+        geom = "bar",
+        color = NA,
+        width = width,
+        position = position,
+        ...
+      )
+  }
+
+  # remove padding between bar and axis
+  if (is_flipped(plot)) {
+    plot <- plot |> adjust_x_axis(padding = c(0, NA), force_continuous = TRUE)
+  } else {
+    plot <- plot |> adjust_y_axis(padding = c(0, NA), force_continuous = TRUE)
+  }
+
+  plot
 }
+
 ## Dash function factory
 ff_dash <- function(.fun, .count = FALSE) {
   function(
@@ -580,19 +596,27 @@ ff_line <- function(.fun, .count = FALSE, .geom) {
 #'   add_mean_value(color = "black")
 #'
 #' @export
-add_mean_bar <- ff_bar(.fun = mean)
+add_mean_bar <- new_wrapper(
+  add_bar_basic,
+  args_hardcode = list(.fun = mean, .count = FALSE)
+)
+
 #' @rdname add_mean_bar
 #' @export
 add_mean_dash <- ff_dash(.fun = mean)
+
 #' @rdname add_mean_bar
 #' @export
 add_mean_dot <- ff_dot(.fun = mean)
+
 #' @rdname add_mean_bar
 #' @export
 add_mean_value <- ff_value(.fun = mean)
+
 #' @rdname add_mean_bar
 #' @export
 add_mean_line <- ff_line(.fun = mean, .geom = "line")
+
 #' @rdname add_mean_bar
 #' @export
 add_mean_area <- ff_line(.fun = mean, .geom = "area")
@@ -666,19 +690,27 @@ add_mean_area <- ff_line(.fun = mean, .geom = "area")
 #'   add_median_value(color = "black")
 #'
 #' @export
-add_median_bar <- ff_bar(.fun = median)
+add_median_bar <- new_wrapper(
+  add_bar_basic,
+  args_hardcode = list(.fun = median, .count = FALSE)
+)
+
 #' @rdname add_median_bar
 #' @export
 add_median_dash <- ff_dash(.fun = median)
+
 #' @rdname add_median_bar
 #' @export
 add_median_dot <- ff_dot(.fun = median)
+
 #' @rdname add_median_bar
 #' @export
 add_median_value <- ff_value(.fun = median)
+
 #' @rdname add_median_bar
 #' @export
 add_median_line <- ff_line(.fun = median, .geom = "line")
+
 #' @rdname add_median_bar
 #' @export
 add_median_area <- ff_line(.fun = median, .geom = "area")
@@ -771,7 +803,11 @@ add_median_area <- ff_line(.fun = median, .geom = "area")
 #'   add_sum_value(extra_padding = 0.5)
 #'
 #' @export
-add_sum_bar <- ff_bar(.fun = sum)
+add_sum_bar <- new_wrapper(
+  add_bar_basic,
+  args_hardcode = list(.fun = sum, .count = FALSE)
+)
+
 #' @rdname add_sum_bar
 #' @export
 add_sum_dash <- ff_dash(.fun = sum)
@@ -870,7 +906,11 @@ add_sum_area <- ff_line(.fun = sum, .geom = "area")
 #'   add_count_value(color = "black")
 #'
 #' @export
-add_count_bar <- ff_bar(.count = TRUE)
+add_count_bar <- new_wrapper(
+  add_bar_basic,
+  args_hardcode = list(.fun = NULL, .count = TRUE)
+)
+
 #' @rdname add_count_bar
 #' @export
 add_count_dash <- ff_dash(.count = TRUE)
