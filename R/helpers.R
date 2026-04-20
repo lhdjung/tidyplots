@@ -581,9 +581,13 @@ new_wrapper <- function(
   fmls <- formals(impl_fn)
   names_fmls <- names(fmls)
 
+  args_hardcode <- rlang::enexpr(args_hardcode)
+  args_hardcode <- args_hardcode[names(args_hardcode) != ""]
+
   names_defaults <- names(args_defaults)
   names_hardcode <- names(args_hardcode)
 
+  # Validate `args_hardcode`
   if (length(args_hardcode) > 0) {
     if (!all(names_hardcode %in% names_fmls)) {
       offenders <- names_hardcode[!names_hardcode %in% names_fmls]
@@ -596,6 +600,7 @@ new_wrapper <- function(
     }
   }
 
+  # Validate `args_defaults` and apply defaults to list of arguments
   if (length(args_defaults) > 0) {
     if (!all(names_defaults %in% names_fmls)) {
       offenders <- names_defaults[!names_defaults %in% names_fmls]
@@ -605,13 +610,13 @@ new_wrapper <- function(
       ))
     }
 
-    names_double_spec <- names_hardcode[names_hardcode %in% names_defaults]
-    if (length(names_double_spec) > 0) {
+    offenders <- names_hardcode[names_hardcode %in% names_defaults]
+    if (length(offenders) > 0) {
       rlang::abort(c(
         "Can't provide defaults for hardcoded arguments.",
         x = paste(
           "These are in both `args_defaults` and `args_hardcode`:",
-          names_double_spec
+          offenders
         )
       ))
     }
@@ -620,13 +625,12 @@ new_wrapper <- function(
     for (i in seq_along(args_defaults)) {
       fmls[names_fmls == names_defaults[i]] <- args_defaults[[i]]
     }
-  } else {
-    names_double_spec <- ""
   }
 
-  param_names <- setdiff(names_fmls, c("...")) # what else?
+  # Dots can't be used like `... = value`
+  names_call_args <- setdiff(names_fmls, "...")
 
-  call_args <- lapply(param_names, function(name) {
+  call_args <- lapply(names_call_args, function(name) {
     if (name %in% names_hardcode) {
       args_hardcode[[name]]
     } else {
@@ -634,19 +638,15 @@ new_wrapper <- function(
     }
   })
 
-  call_args <- rlang::set_names(call_args, param_names)
+  names(call_args) <- names_call_args
 
   # Use dots by default
   if (pass_dots && "..." %in% names_fmls) {
     call_args <- c(call_args, list(quote(...)))
   }
 
-  # Clean up local objects after factory finishes
-  # fmt: skip
-  on.exit(rm(
-    impl_fn, args_defaults, args_hardcode, pass_dots, name_fn, fmls, names_fmls,
-    names_hardcode, names_defaults, names_double_spec, param_names, call_args
-  ))
+  # Clean up local objects after factory finishes, else they'd linger in its env
+  on.exit(rm(list = rlang::env_names(rlang::current_env())))
 
   # Create and return a thin wrapper around `adjust_axis_basic()`
   rlang::new_function(
