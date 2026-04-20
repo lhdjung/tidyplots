@@ -240,10 +240,9 @@ add_bar_basic <- function(
   ...
 ) {
   plot <- check_tidyplot(plot)
-  # `check_tidyplot()` records the direct caller ("add_bar_basic"), but
-  # `call_history` consumers like `sort_x_axis_levels()` match on public API
-  # names like "add_count_bar". Overwrite the last entry with the actual public
-  # caller.
+  # `new_wrapper()` generates a forwarding call, so `check_tidyplot()`'s
+  # sys.call(sys.parent()) records "add_bar_basic" instead of the public API
+  # name. Overwrite the last entry with the actual public caller.
   outer_call <- sys.call(sys.parent())
   plot$tidyplot$call_history[length(plot$tidyplot$call_history)] <-
     as.character(outer_call[[1]])
