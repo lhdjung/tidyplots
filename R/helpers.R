@@ -569,7 +569,10 @@ get_layout_size <- function(plot, units = c("mm", "cm", "in")) {
 # wrapper will forward all arguments to the implementation and have the same
 # defaults. This can be adjusted via `args_defaults`. You can also hardcode
 # argument specifications in the forwarding call via `args_hardcode`. If you do,
-# they won't be arguments of the wrapper. Dots `...` are forwarded by default,
+# they won't be arguments of the wrapper. Specify `args_hardcode` as either a
+# literal `list()` call if the symbols in that call should remain unevaluated,
+# like `list(fn = mean)`; better to use the function name than to splice the
+# body into the wrapper. If there are dots `...`, they are forwarded by default,
 # but you can use `pass_dots = FALSE` so the wrapper won't support the dots.
 new_wrapper <- function(
   impl_fn,
@@ -577,12 +580,22 @@ new_wrapper <- function(
   args_hardcode = list(),
   pass_dots = TRUE
 ) {
-  name_fn <- deparse(substitute(impl_fn))
   fmls <- formals(impl_fn)
   names_fmls <- names(fmls)
 
-  args_hardcode <- rlang::enexpr(args_hardcode)
-  args_hardcode <- args_hardcode[names(args_hardcode) != ""]
+  args_hardcode_expr <- rlang::enexpr(args_hardcode)
+
+  if (rlang::is_call(args_hardcode_expr, "list")) {
+    # Literal `list()` call: keep elements unevaluated, so symbols like `mean`
+    # appear by name in the generated call body rather than as inlined objects
+    args_hardcode <- args_hardcode_expr[names(args_hardcode_expr) != ""]
+  } else {
+    # Pre-built variable: evaluate eagerly in the caller env
+    args_hardcode <- rlang::eval_bare(args_hardcode_expr, rlang::caller_env())
+    if (length(args_hardcode) > 0 && !rlang::is_named(args_hardcode)) {
+      rlang::abort("`args_hardcode` must be a fully named list.")
+    }
+  }
 
   names_defaults <- names(args_defaults)
   names_hardcode <- names(args_hardcode)
@@ -645,13 +658,24 @@ new_wrapper <- function(
     call_args <- c(call_args, list(quote(...)))
   }
 
+  # The wrapper can't have arguments that were hardcoded in the body. The dots
+  # can optionally be excluded.
+  exclude <- if (pass_dots) names_hardcode else c(names_hardcode, "...")
+
+  # Execution environment for the wrapper where `impl_fn`
+  wrapper_env <- rlang::new_environment(
+    list(.impl = impl_fn),
+    parent = parent.frame()
+  )
+
   # Clean up local objects after factory finishes, else they'd linger in its env
   on.exit(rm(list = rlang::env_names(rlang::current_env())))
 
-  # Create and return a thin wrapper around `adjust_axis_basic()`
+  # Create the wrapper
   rlang::new_function(
-    args = as.pairlist(fmls[!names_fmls %in% names_hardcode]),
-    body = rlang::call2(name_fn, !!!call_args)
+    args = as.pairlist(fmls[!names_fmls %in% exclude]),
+    body = rlang::call2(".impl", !!!call_args),
+    env = wrapper_env
   )
 }
 
