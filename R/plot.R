@@ -140,7 +140,7 @@ print.tidyplot <- function(x, ...) {
       function(call) {
         tryCatch(
           deparse(call[[1L]])[1L] %in%
-            c("ggsave", "ggplot2::ggsave", "save_plot", "tidyplots::save_plot", "cowplot::save_plot"),
+            c("ggsave", "ggplot2::ggsave"),
           error = function(e) FALSE
         )
       },
